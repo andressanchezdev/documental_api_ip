@@ -1,7 +1,7 @@
 # Binarios compilados
 *.exe
-api
-doc-api
+/api
+/doc-api
 
 # Variables de entorno y credenciales sensibles de Google OAuth2
 .env
