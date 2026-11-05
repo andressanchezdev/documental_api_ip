@@ -410,8 +410,8 @@ func main() {
 		// 4. Subgrupo de Hojas de Cálculo (/api/sheets): tabs, fórmulas, filas/columnas completas, filtros, imágenes
 		routes.RegisterSheetsRoutes(api, gdriveClient, permStore)
 
-		// 5. Utilidad de subida de imágenes con permisos públicos para Docs y Sheets
-		routes.RegisterImageRoutes(api, gdriveClient, permStore)
+		// 5. Utilidad de subida de imágenes con permisos públicos para Docs, Sheets y sincronización con tabla productos
+		routes.RegisterImageRoutes(api, gdriveClient, permStore, db)
 
 		// 6. Checklist y Gestión de Permisos de Carpetas y Capacidades (/api/permissions y /api/users)
 		routes.RegisterPermissionRoutes(api, gdriveClient, permStore, authSvc)

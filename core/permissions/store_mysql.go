@@ -3,6 +3,7 @@ package permissions
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 type mysqlStore struct {
@@ -16,27 +17,55 @@ func NewMySQLStore(db *sql.DB) Store {
 
 func (s *mysqlStore) GetUserCapabilities(userID uint, defaultRole string) UserCapabilities {
 	if defaultRole == "" {
-		_ = s.db.QueryRow("SELECT role FROM users WHERE id = ? LIMIT 1", userID).Scan(&defaultRole)
+		_ = s.db.QueryRow("SELECT COALESCE(role, '') FROM users WHERE id = ? LIMIT 1", userID).Scan(&defaultRole)
+		if defaultRole == "" {
+			_ = s.db.QueryRow("SELECT COALESCE(perfil, '') FROM usuarios WHERE id_usuario = ? LIMIT 1", userID).Scan(&defaultRole)
+		}
 	}
 
 	var canRead, canEdit, canStorage, isAdmin bool
 	query := "SELECT can_read, can_edit, can_storage, is_admin FROM user_drive_permissions WHERE user_id = ? LIMIT 1"
 	err := s.db.QueryRow(query, userID).Scan(&canRead, &canEdit, &canStorage, &isAdmin)
-	if err != nil {
-		return DefaultCapabilitiesForRole(userID, defaultRole)
+	if err == nil {
+		if strings.Contains(strings.ToLower(defaultRole), "admin") {
+			isAdmin = true
+		}
+		return UserCapabilities{
+			UserID:     userID,
+			CanRead:    canRead,
+			CanEdit:    canEdit,
+			CanStorage: canStorage,
+			IsAdmin:    isAdmin,
+		}
 	}
 
-	if defaultRole == "admin" {
-		isAdmin = true
+	// Si no está en user_drive_permissions, derivar desde la tabla `usuarios` y `permissions` (DB local)
+	var perfilStr, permisosJSON string
+	errUsuarios := s.db.QueryRow("SELECT COALESCE(perfil, ''), COALESCE(permisos, '') FROM usuarios WHERE id_usuario = ? LIMIT 1", userID).Scan(&perfilStr, &permisosJSON)
+	if errUsuarios == nil {
+		pLower := strings.ToLower(perfilStr)
+		if strings.Contains(pLower, "admin") || strings.Contains(pLower, "soporte") {
+			return UserCapabilities{UserID: userID, CanRead: true, CanEdit: true, CanStorage: true, IsAdmin: true}
+		}
+
+		// Consultar permisos granulares activos en la tabla `permissions` de la DB local
+		var hasAppManagment, hasAppInventory, hasAddQuantities int
+		_ = s.db.QueryRow("SELECT COUNT(*) FROM permissions WHERE id_usuario = ? AND activo = 1 AND tipo_permiso = 'appManagment'", userID).Scan(&hasAppManagment)
+		_ = s.db.QueryRow("SELECT COUNT(*) FROM permissions WHERE id_usuario = ? AND activo = 1 AND tipo_permiso = 'appInventory'", userID).Scan(&hasAppInventory)
+		_ = s.db.QueryRow("SELECT COUNT(*) FROM permissions WHERE id_usuario = ? AND activo = 1 AND tipo_permiso = 'addQuantities'", userID).Scan(&hasAddQuantities)
+
+		canEditPerm := strings.Contains(permisosJSON, `"editar":1`) || strings.Contains(permisosJSON, `"editar": 1`) || strings.Contains(pLower, "editor") || hasAppManagment > 0 || hasAppInventory > 0
+		canStoragePerm := strings.Contains(permisosJSON, `"ingresar":1`) || strings.Contains(permisosJSON, `"ingresar": 1`) || strings.Contains(pLower, "editor") || hasAppManagment > 0 || hasAddQuantities > 0
+		return UserCapabilities{
+			UserID:     userID,
+			CanRead:    true,
+			CanEdit:    canEditPerm,
+			CanStorage: canStoragePerm,
+			IsAdmin:    hasAppManagment > 0,
+		}
 	}
 
-	return UserCapabilities{
-		UserID:     userID,
-		CanRead:    canRead,
-		CanEdit:    canEdit,
-		CanStorage: canStorage,
-		IsAdmin:    isAdmin,
-	}
+	return DefaultCapabilitiesForRole(userID, defaultRole)
 }
 
 func (s *mysqlStore) SetUserCapabilities(caps UserCapabilities) error {

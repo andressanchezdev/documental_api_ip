@@ -26,6 +26,43 @@ func defaultCapabilitiesByRole(role Role) (canRead, canEdit, canStorage bool) {
 
 func (r *mysqlRepository) FindByUsername(identifier string) (*User, error) {
 	clean := strings.TrimSpace(identifier)
+
+	// 1. Soporte prioritario para la tabla `usuarios` (DB local de Importadora / MySQL)
+	var hasUsuarios int
+	_ = r.db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'usuarios'").Scan(&hasUsuarios)
+
+	if hasUsuarios > 0 {
+		queryUsuarios := `SELECT 
+			id_usuario, 
+			COALESCE(NULLIF(email, ''), NULLIF(email_empresa, ''), CAST(id_usuario AS CHAR)), 
+			COALESCE(NULLIF(email, ''), CAST(id_usuario AS CHAR)), 
+			password, 
+			COALESCE(perfil, ''), 
+			fecha 
+		FROM usuarios 
+		WHERE (LOWER(email) = LOWER(?) OR LOWER(email_empresa) = LOWER(?) OR CAST(id_usuario AS CHAR) = ?) 
+		ORDER BY estado DESC, id_usuario ASC
+		LIMIT 1`
+		row := r.db.QueryRow(queryUsuarios, clean, clean, clean)
+
+		var u User
+		var perfilStr string
+		err := row.Scan(&u.ID, &u.Email, &u.Username, &u.PasswordHash, &perfilStr, &u.CreatedAt)
+		if err == nil {
+			perfilLower := strings.ToLower(perfilStr)
+			if strings.Contains(perfilLower, "admin") {
+				u.Role = RoleAdmin
+			} else if strings.Contains(perfilLower, "editor") {
+				u.Role = RoleEditor
+			} else {
+				u.Role = RoleReader
+			}
+			u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+			return &u, nil
+		}
+	}
+
+	// 2. Fallback a la tabla `users` estándar
 	query := `SELECT id, COALESCE(email, username), username, password_hash, role, created_at 
 		FROM users 
 		WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?) 
@@ -47,6 +84,41 @@ func (r *mysqlRepository) FindByUsername(identifier string) (*User, error) {
 }
 
 func (r *mysqlRepository) FindByID(id uint) (*User, error) {
+	// 1. Soporte para tabla `usuarios`
+	var hasUsuarios int
+	_ = r.db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'usuarios'").Scan(&hasUsuarios)
+
+	if hasUsuarios > 0 {
+		queryUsuarios := `SELECT 
+			id_usuario, 
+			COALESCE(NULLIF(email, ''), NULLIF(email_empresa, ''), CAST(id_usuario AS CHAR)), 
+			COALESCE(NULLIF(email, ''), CAST(id_usuario AS CHAR)), 
+			password, 
+			COALESCE(perfil, ''), 
+			fecha 
+		FROM usuarios 
+		WHERE id_usuario = ? 
+		LIMIT 1`
+		row := r.db.QueryRow(queryUsuarios, id)
+
+		var u User
+		var perfilStr string
+		err := row.Scan(&u.ID, &u.Email, &u.Username, &u.PasswordHash, &perfilStr, &u.CreatedAt)
+		if err == nil {
+			perfilLower := strings.ToLower(perfilStr)
+			if strings.Contains(perfilLower, "admin") {
+				u.Role = RoleAdmin
+			} else if strings.Contains(perfilLower, "editor") {
+				u.Role = RoleEditor
+			} else {
+				u.Role = RoleReader
+			}
+			u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+			return &u, nil
+		}
+	}
+
+	// 2. Fallback a tabla `users`
 	query := `SELECT id, COALESCE(email, username), username, password_hash, role, created_at 
 		FROM users 
 		WHERE id = ? 
@@ -68,6 +140,39 @@ func (r *mysqlRepository) FindByID(id uint) (*User, error) {
 }
 
 func (r *mysqlRepository) FindAll() []*User {
+	var hasUsuarios int
+	_ = r.db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'usuarios'").Scan(&hasUsuarios)
+
+	if hasUsuarios > 0 {
+		query := `SELECT id_usuario, COALESCE(NULLIF(email, ''), NULLIF(email_empresa, ''), CAST(id_usuario AS CHAR)), COALESCE(perfil, 'reader'), fecha 
+			FROM usuarios ORDER BY id_usuario ASC LIMIT 200`
+		rows, err := r.db.Query(query)
+		if err == nil {
+			defer rows.Close()
+			var list []*User
+			for rows.Next() {
+				var u User
+				var perfilStr string
+				if err := rows.Scan(&u.ID, &u.Email, &perfilStr, &u.CreatedAt); err == nil {
+					u.Username = u.Email
+					perfilLower := strings.ToLower(perfilStr)
+					if strings.Contains(perfilLower, "admin") {
+						u.Role = RoleAdmin
+					} else if strings.Contains(perfilLower, "editor") {
+						u.Role = RoleEditor
+					} else {
+						u.Role = RoleReader
+					}
+					u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+					list = append(list, &u)
+				}
+			}
+			if len(list) > 0 {
+				return list
+			}
+		}
+	}
+
 	query := "SELECT id, COALESCE(email, username), username, role, created_at FROM users ORDER BY id ASC"
 	rows, err := r.db.Query(query)
 	if err != nil {
