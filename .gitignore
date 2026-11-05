@@ -1,0 +1,19 @@
+# Binarios compilados
+*.exe
+api
+doc-api
+
+# Variables de entorno y credenciales sensibles de Google OAuth2
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+folder_permissions.json*
+
+# Archivos de sistema y editores
+.DS_Store
+.vscode/
+.idea/
+
+infinicial.txt
