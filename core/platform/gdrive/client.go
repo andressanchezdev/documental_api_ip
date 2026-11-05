@@ -378,10 +378,59 @@ func saveToken(path string, token *oauth2.Token) {
 func NewClient(credentialsPath string) (*Client, error) {
 	ctx := context.Background()
 
+	// 1. Soporte para variables individuales de Service Account (como las de Railway)
+	if privateKey := strings.TrimSpace(os.Getenv("PRIVATE_KEY")); privateKey != "" {
+		clientEmail := strings.TrimSpace(os.Getenv("CLIENT_EMAIL"))
+		projectID := strings.TrimSpace(os.Getenv("PROJECT_ID"))
+		if projectID == "" {
+			projectID = strings.TrimSpace(os.Getenv("PROYECT_ID"))
+		}
+		// Asegurar saltos de línea correctos en la clave privada PEM
+		privateKey = strings.ReplaceAll(privateKey, `\n`, "\n")
+
+		saMap := map[string]string{
+			"type":                        os.Getenv("TYPE"),
+			"project_id":                  projectID,
+			"private_key_id":              os.Getenv("PRIVATE_KEY_ID"),
+			"private_key":                 privateKey,
+			"client_email":                clientEmail,
+			"client_id":                   os.Getenv("CLIENT_ID"),
+			"auth_uri":                    os.Getenv("AUTH_URI"),
+			"token_uri":                   os.Getenv("TOKEN_URI"),
+			"auth_provider_x509_cert_url": os.Getenv("AUTH_PROVIDER_X509_CERT_URL"),
+			"client_x509_cert_url":        os.Getenv("CLIENT_X509_CERT_URL"),
+			"universe_domain":             os.Getenv("UNIVERSE_DOMAIN"),
+		}
+		if saMap["type"] == "" {
+			saMap["type"] = "service_account"
+		}
+		if saMap["auth_uri"] == "" {
+			saMap["auth_uri"] = "https://accounts.google.com/o/oauth2/auth"
+		}
+		if saMap["token_uri"] == "" {
+			saMap["token_uri"] = "https://oauth2.googleapis.com/token"
+		}
+
+		saBytes, _ := json.Marshal(saMap)
+		drv, err := drive.NewService(ctx, option.WithCredentialsJSON(saBytes))
+		if err != nil {
+			return nil, fmt.Errorf("error conectando a Google Drive (Service Account): %w", err)
+		}
+		docSvc, err := docs.NewService(ctx, option.WithCredentialsJSON(saBytes))
+		if err != nil {
+			return nil, fmt.Errorf("error conectando a Google Docs (Service Account): %w", err)
+		}
+		sheetsSvc, err := sheets.NewService(ctx, option.WithCredentialsJSON(saBytes))
+		if err != nil {
+			return nil, fmt.Errorf("error conectando a Google Sheets (Service Account): %w", err)
+		}
+		return &Client{drive: drv, docs: docSvc, sheets: sheetsSvc}, nil
+	}
+
 	var b []byte
 	var err error
 
-	// 1. Soporte prioritario para GOOGLE_CREDENTIALS_JSON (entorno Railway)
+	// 2. Soporte prioritario para GOOGLE_CREDENTIALS_JSON (entorno Railway)
 	if envCreds := strings.TrimSpace(os.Getenv("GOOGLE_CREDENTIALS_JSON")); envCreds != "" {
 		b = []byte(envCreds)
 	} else {
@@ -391,6 +440,24 @@ func NewClient(credentialsPath string) (*Client, error) {
 		}
 	}
 
+	// Si las credenciales provistas corresponden a una Service Account JSON
+	if strings.Contains(string(b), "\"service_account\"") {
+		drv, err := drive.NewService(ctx, option.WithCredentialsJSON(b))
+		if err != nil {
+			return nil, fmt.Errorf("error conectando a Google Drive con Service Account JSON: %w", err)
+		}
+		docSvc, err := docs.NewService(ctx, option.WithCredentialsJSON(b))
+		if err != nil {
+			return nil, fmt.Errorf("error conectando a Google Docs con Service Account JSON: %w", err)
+		}
+		sheetsSvc, err := sheets.NewService(ctx, option.WithCredentialsJSON(b))
+		if err != nil {
+			return nil, fmt.Errorf("error conectando a Google Sheets con Service Account JSON: %w", err)
+		}
+		return &Client{drive: drv, docs: docSvc, sheets: sheetsSvc}, nil
+	}
+
+	// 3. Flujo OAuth 2.0 (Installed App o Web App)
 	config, err := google.ConfigFromJSON(b, drive.DriveScope, docs.DocumentsScope, sheets.SpreadsheetsScope)
 	if err != nil {
 		return nil, fmt.Errorf("error parseando credenciales OAuth: %w", err)
