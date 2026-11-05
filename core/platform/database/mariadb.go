@@ -36,7 +36,7 @@ func LoadConfigFromEnv() Config {
 	password := os.Getenv("DB_PASSWORD")
 	database := os.Getenv("DB_NAME")
 	if database == "" {
-		database = "doc_api"
+		database = "mysql"
 	}
 
 	return Config{

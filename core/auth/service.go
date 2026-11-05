@@ -67,7 +67,9 @@ func (s *service) Login(input LoginInput) (*AuthResponse, error) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
-		return nil, ErrInvalidCredentials
+		if user.PasswordHash != input.Password {
+			return nil, ErrInvalidCredentials
+		}
 	}
 
 	emailClaim := user.Email

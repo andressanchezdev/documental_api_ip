@@ -77,3 +77,4 @@ ON DUPLICATE KEY UPDATE
     can_edit = VALUES(can_edit),
     can_storage = VALUES(can_storage),
     is_admin = VALUES(is_admin);
+
