@@ -24,6 +24,23 @@ func defaultCapabilitiesByRole(role Role) (canRead, canEdit, canStorage bool) {
 	}
 }
 
+func (r *mysqlRepository) enrichCapabilities(u *User) {
+	if u == nil {
+		return
+	}
+	u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+	var canRead, canEdit, canStorage, isAdmin bool
+	err := r.db.QueryRow("SELECT can_read, can_edit, can_storage, is_admin FROM user_drive_permissions WHERE user_id = ? LIMIT 1", u.ID).Scan(&canRead, &canEdit, &canStorage, &isAdmin)
+	if err == nil {
+		u.CanRead = canRead
+		u.CanEdit = canEdit
+		u.CanStorage = canStorage
+		if isAdmin {
+			u.Role = RoleAdmin
+		}
+	}
+}
+
 func (r *mysqlRepository) FindByUsername(identifier string) (*User, error) {
 	clean := strings.TrimSpace(identifier)
 
@@ -57,7 +74,7 @@ func (r *mysqlRepository) FindByUsername(identifier string) (*User, error) {
 			} else {
 				u.Role = RoleReader
 			}
-			u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+			r.enrichCapabilities(&u)
 			return &u, nil
 		}
 	}
@@ -79,7 +96,7 @@ func (r *mysqlRepository) FindByUsername(identifier string) (*User, error) {
 		return nil, err
 	}
 	u.Role = Role(roleStr)
-	u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+	r.enrichCapabilities(&u)
 	return &u, nil
 }
 
@@ -113,7 +130,7 @@ func (r *mysqlRepository) FindByID(id uint) (*User, error) {
 			} else {
 				u.Role = RoleReader
 			}
-			u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+			r.enrichCapabilities(&u)
 			return &u, nil
 		}
 	}
@@ -135,7 +152,7 @@ func (r *mysqlRepository) FindByID(id uint) (*User, error) {
 		return nil, err
 	}
 	u.Role = Role(roleStr)
-	u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+	r.enrichCapabilities(&u)
 	return &u, nil
 }
 
@@ -163,7 +180,7 @@ func (r *mysqlRepository) FindAll() []*User {
 					} else {
 						u.Role = RoleReader
 					}
-					u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+					r.enrichCapabilities(&u)
 					list = append(list, &u)
 				}
 			}
@@ -186,7 +203,7 @@ func (r *mysqlRepository) FindAll() []*User {
 		var roleStr string
 		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &roleStr, &u.CreatedAt); err == nil {
 			u.Role = Role(roleStr)
-			u.CanRead, u.CanEdit, u.CanStorage = defaultCapabilitiesByRole(u.Role)
+			r.enrichCapabilities(&u)
 			list = append(list, &u)
 		}
 	}

@@ -44,7 +44,7 @@ func RegisterPermissionRoutes(api *echo.Group, client *gdrive.Client, permStore 
 			enriched = append(enriched, cp)
 		}
 		return c.JSON(http.StatusOK, enriched)
-	}, auth.RequireRole(auth.RoleAdmin, auth.RoleEditor))
+	}, auth.RequireAdminPermission(permStore))
 
 	permGroup := api.Group("/permissions", auth.RequireAdminPermission(permStore))
 

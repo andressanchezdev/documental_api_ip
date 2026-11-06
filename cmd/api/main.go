@@ -265,10 +265,6 @@ func main() {
 					})
 				}
 
-				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
-					logDocumentActivity(db, fileID, "", "MOVE_FILE", req.TargetFolderID, claims.UserID, claims.Email, fmt.Sprintf("Movido a carpeta %s", req.TargetFolderID))
-				}
-
 				return c.JSON(http.StatusOK, map[string]string{"message": "Archivo movido exitosamente"})
 			}, storageGuard)
 
@@ -309,10 +305,6 @@ func main() {
 					})
 				}
 
-				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
-					logDocumentActivity(db, fileID, "", "UPDATE_TEXT", "", claims.UserID, claims.Email, "Texto de documento actualizado")
-				}
-
 				return c.JSON(http.StatusOK, map[string]string{"message": "Guardado exitosamente"})
 			}, editGuard)
 
@@ -343,10 +335,6 @@ func main() {
 					return c.JSON(http.StatusInternalServerError, map[string]string{
 						"message": fmt.Sprintf("Error guardando hoja: %v", err),
 					})
-				}
-
-				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
-					logDocumentActivity(db, fileID, "", "UPDATE_SHEET", "", claims.UserID, claims.Email, fmt.Sprintf("Hoja '%s' actualizada (%d filas)", req.SheetName, len(req.Rows)))
 				}
 
 				return c.JSON(http.StatusOK, map[string]string{"message": "Hoja de cálculo actualizada"})
@@ -407,10 +395,6 @@ func main() {
 					})
 				}
 
-				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
-					logDocumentActivity(db, meta.ID, meta.Name, "UPLOAD_FILE", folderID, claims.UserID, claims.Email, fmt.Sprintf("Archivo subido (%s)", meta.MimeType))
-				}
-
 				return c.JSON(http.StatusCreated, meta)
 			}, storageGuard)
 
@@ -430,10 +414,6 @@ func main() {
 					return c.JSON(http.StatusInternalServerError, map[string]string{
 						"message": fmt.Sprintf("Error creando documento en Drive: %v", err),
 					})
-				}
-
-				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
-					logDocumentActivity(db, meta.ID, meta.Name, "CREATE_FILE", req.FolderID, claims.UserID, claims.Email, fmt.Sprintf("Nuevo archivo creado (%s)", req.Type))
 				}
 
 				return c.JSON(http.StatusCreated, meta)
