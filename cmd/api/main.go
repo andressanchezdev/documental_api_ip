@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +19,18 @@ import (
 	"doc-api/core/platform/gdrive"
 	"doc-api/core/routes"
 )
+
+// logDocumentActivity registra silenciosamente en la base de datos dónde, cuándo y quién realiza un ajuste sobre el archivo
+func logDocumentActivity(db *sql.DB, driveID, title, action, folderID string, userID uint, userEmail string, details string) {
+	if db == nil || driveID == "" {
+		return
+	}
+	go func() {
+		query := `INSERT INTO document_activity (drive_id, title, action, folder_id, user_id, user_email, details) 
+		          VALUES (?, ?, ?, ?, ?, ?, ?)`
+		_, _ = db.Exec(query, driveID, title, action, folderID, userID, userEmail, details)
+	}()
+}
 
 func main() {
 	// 0. Cargar variables de entorno (.env local o variables de Railway)
@@ -124,6 +137,9 @@ func main() {
 
 			// Registrar permisos de la nueva carpeta en el checklist
 			_ = permStore.SetFolderPermissions(folderID, req.AllowedUserIDs, req.AllowedRoles, claims.UserID)
+
+			// Registro de auditoría en base de datos
+			logDocumentActivity(db, folderID, strings.TrimSpace(req.Name), "CREATE_FOLDER", req.ParentID, claims.UserID, claims.Email, "Nueva carpeta creada")
 
 			parents := []string{}
 			if strings.TrimSpace(req.ParentID) != "" && req.ParentID != "root" {
@@ -249,6 +265,10 @@ func main() {
 					})
 				}
 
+				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
+					logDocumentActivity(db, fileID, "", "MOVE_FILE", req.TargetFolderID, claims.UserID, claims.Email, fmt.Sprintf("Movido a carpeta %s", req.TargetFolderID))
+				}
+
 				return c.JSON(http.StatusOK, map[string]string{"message": "Archivo movido exitosamente"})
 			}, storageGuard)
 
@@ -289,6 +309,10 @@ func main() {
 					})
 				}
 
+				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
+					logDocumentActivity(db, fileID, "", "UPDATE_TEXT", "", claims.UserID, claims.Email, "Texto de documento actualizado")
+				}
+
 				return c.JSON(http.StatusOK, map[string]string{"message": "Guardado exitosamente"})
 			}, editGuard)
 
@@ -319,6 +343,10 @@ func main() {
 					return c.JSON(http.StatusInternalServerError, map[string]string{
 						"message": fmt.Sprintf("Error guardando hoja: %v", err),
 					})
+				}
+
+				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
+					logDocumentActivity(db, fileID, "", "UPDATE_SHEET", "", claims.UserID, claims.Email, fmt.Sprintf("Hoja '%s' actualizada (%d filas)", req.SheetName, len(req.Rows)))
 				}
 
 				return c.JSON(http.StatusOK, map[string]string{"message": "Hoja de cálculo actualizada"})
@@ -379,6 +407,10 @@ func main() {
 					})
 				}
 
+				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
+					logDocumentActivity(db, meta.ID, meta.Name, "UPLOAD_FILE", folderID, claims.UserID, claims.Email, fmt.Sprintf("Archivo subido (%s)", meta.MimeType))
+				}
+
 				return c.JSON(http.StatusCreated, meta)
 			}, storageGuard)
 
@@ -398,6 +430,10 @@ func main() {
 					return c.JSON(http.StatusInternalServerError, map[string]string{
 						"message": fmt.Sprintf("Error creando documento en Drive: %v", err),
 					})
+				}
+
+				if claims, ok := c.Get("user").(*auth.CustomClaims); ok && claims != nil {
+					logDocumentActivity(db, meta.ID, meta.Name, "CREATE_FILE", req.FolderID, claims.UserID, claims.Email, fmt.Sprintf("Nuevo archivo creado (%s)", req.Type))
 				}
 
 				return c.JSON(http.StatusCreated, meta)

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Config struct {
@@ -23,7 +22,7 @@ type Config struct {
 func LoadConfigFromEnv() Config {
 	host := os.Getenv("DB_HOST")
 	if host == "" {
-		host = "localhost"
+		host = "127.0.0.1"
 	}
 	port := os.Getenv("DB_PORT")
 	if port == "" {
@@ -36,7 +35,7 @@ func LoadConfigFromEnv() Config {
 	password := os.Getenv("DB_PASSWORD")
 	database := os.Getenv("DB_NAME")
 	if database == "" {
-		database = "mysql"
+		database = "doc_api"
 	}
 
 	return Config{
@@ -85,10 +84,10 @@ func ConnectMariaDB(cfg Config) (*sql.DB, error) {
 	return db, nil
 }
 
-// AutoMigrate crea y actualiza las tablas requeridas si aún no existen
+// AutoMigrate crea las estructuras de tablas requeridas si aún no existen
 func AutoMigrate(db *sql.DB) error {
 	queries := []string{
-		// 1. Tabla de usuarios (con soporte de email y username)
+		// 1. Tabla de usuarios
 		`CREATE TABLE IF NOT EXISTS users (
 			id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 			email VARCHAR(190) NULL UNIQUE,
@@ -131,6 +130,22 @@ func AutoMigrate(db *sql.DB) error {
 			is_admin TINYINT(1) NOT NULL DEFAULT 0,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+		// 5. Tabla de auditoría / registro de actividad de archivos (dónde, cuándo, quién y qué ajustó)
+		`CREATE TABLE IF NOT EXISTS document_activity (
+			id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+			drive_id VARCHAR(255) NOT NULL,
+			title VARCHAR(255) NOT NULL,
+			action VARCHAR(50) NOT NULL,
+			folder_id VARCHAR(255) NULL,
+			user_id INT UNSIGNED NOT NULL,
+			user_email VARCHAR(190) NULL,
+			details TEXT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_drive_id (drive_id),
+			INDEX idx_user_id (user_id),
+			INDEX idx_created_at (created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
 	}
 
 	for _, q := range queries {
@@ -139,27 +154,8 @@ func AutoMigrate(db *sql.DB) error {
 		}
 	}
 
-	// Asegurar columna email si la tabla users fue creada por una versión previa
+	// Asegurar columna email si la tabla users fue creada previamente
 	_, _ = db.Exec("ALTER TABLE users ADD COLUMN email VARCHAR(190) NULL UNIQUE AFTER id;")
-
-	// Insertar usuarios iniciales por defecto si la tabla está vacía
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-	if err == nil && count == 0 {
-		adminHash, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
-		editorHash, _ := bcrypt.GenerateFromPassword([]byte("editor123"), bcrypt.DefaultCost)
-		readerHash, _ := bcrypt.GenerateFromPassword([]byte("lector123"), bcrypt.DefaultCost)
-
-		seedQuery := `INSERT INTO users (email, username, password_hash, role) VALUES 
-			('admin@empresa.com', 'admin', ?, 'admin'),
-			('editor@empresa.com', 'editor', ?, 'editor'),
-			('lector@empresa.com', 'lector', ?, 'reader');`
-		_, _ = db.Exec(seedQuery, string(adminHash), string(editorHash), string(readerHash))
-		log.Println("[MariaDB] Usuarios semilla creados (admin@empresa.com, editor@empresa.com, lector@empresa.com)")
-	} else {
-		// Poblar email por defecto en registros antiguos si estuviera vacío
-		_, _ = db.Exec("UPDATE users SET email = CONCAT(username, '@empresa.com') WHERE email IS NULL OR email = '';")
-	}
 
 	return nil
 }
